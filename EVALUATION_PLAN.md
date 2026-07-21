@@ -184,6 +184,39 @@ empty. Statistical uncertainty is bootstrapped by connected sequence, never by
 cell or individual trigger. Multiple model comparisons use a declared family
 and adjusted p-values.
 
+### What the frozen v1 benchmark actually measures
+
+Measured on the 2022-2023 validation set and recorded in
+`benchmarks/metric-audit.md`. The primary metric stays frozen for
+comparability, but it should not be read as a pure skill score.
+
+- Persistence predicts exactly zero wherever the previous week was empty, and
+  the Poisson likelihood clamps those cells to 1e-6. That charges 13.82 nats
+  for each of the 29.8 percent of validation events landing there, worth 4.12
+  nats/event on its own. Against a floored baseline the same weights score
+  1.988 rather than 3.994. Average precision over occupied cells, 0.228 against
+  persistence's 0.145, is the cleanest clamp-free evidence of spatial skill and
+  is what later attempts should be judged on.
+- The score is concentrated: 512 of 206,400 cells supply 86 percent of it, the
+  top 5 of 200 sequences supply 66 percent, and the model loses to persistence
+  on 46.5 percent of sequences.
+
+### Resolution, and the comparison protocol it forces
+
+The marginal 95 percent sequence-bootstrap interval on a single score spans
+roughly four nats, so no single run can be compared against a remembered number.
+Paired against a sibling run on the same resampled sequences the interval
+narrows to about a third of a nat, because sibling models succeed and fail on
+the same productive sequences.
+
+Every comparison therefore reports the paired bootstrap from
+`scripts/compare_checkpoints.py`, not a difference of headline scores. Paired
+intervals control for which sequences were drawn but not for initialisation, so
+a configuration is only accepted after repeated seeds. Where a run selects its
+epoch on validation, the selected and final-epoch scores are both reported: the
+selected one is optimistic by construction and does not transfer to the sealed
+test.
+
 ## Probabilistic output
 
 Convert the model's log-rate output to a non-negative expected count before
