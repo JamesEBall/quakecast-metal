@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from quakecast.demo import select_device
@@ -89,6 +90,35 @@ class CappedComponentSampler(torch.utils.data.Sampler[int]):
 def poisson_log_likelihood(target: torch.Tensor, rate: torch.Tensor) -> torch.Tensor:
     rate = rate.clamp_min(1e-6)
     return (target * rate.log() - rate - torch.lgamma(target + 1)).sum(dim=(1, 2, 3))
+
+
+def poisson_nll_from_rate(target: torch.Tensor, rate: torch.Tensor) -> torch.Tensor:
+    return (rate - target * rate.clamp_min(1e-8).log()).mean()
+
+
+def multiscale_penalty(log_rate: torch.Tensor, target: torch.Tensor, scales: tuple[int, ...]) -> torch.Tensor:
+    """Poisson loss on block-summed counts as well as individual cells.
+
+    Cell-wise loss treats a forecast one cell away from an aftershock exactly
+    like one on the far side of the grid. Scoring block sums too rewards
+    putting rate in the right neighbourhood, which is what average precision
+    over occupied cells measures.
+    """
+    rate = log_rate.exp()
+    penalty = log_rate.new_zeros(())
+    for scale in scales:
+        area = scale * scale
+        penalty = penalty + poisson_nll_from_rate(
+            F.avg_pool2d(target, scale) * area, F.avg_pool2d(rate, scale) * area
+        )
+    return penalty / len(scales)
+
+
+def calibration_penalty(log_rate: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Squared log mismatch between forecast and observed events per example."""
+    forecast = log_rate.exp().sum(dim=(1, 2, 3))
+    observed = target.sum(dim=(1, 2, 3))
+    return (torch.log1p(forecast) - torch.log1p(observed)).pow(2).mean()
 
 
 def average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
@@ -257,6 +287,18 @@ def main() -> None:
         help="Non-replacement sequence balancing: cap examples drawn per sequence per epoch",
     )
     parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument(
+        "--multiscale-weight",
+        type=float,
+        default=0.0,
+        help="Weight on Poisson loss over 2x2 and 4x4 block sums",
+    )
+    parser.add_argument(
+        "--calibration-weight",
+        type=float,
+        default=0.0,
+        help="Weight on squared log mismatch of total forecast events",
+    )
     parser.add_argument("--gradient-clip", type=float, help="Clip global gradient norm")
     parser.add_argument("--scheduler", choices=("step", "cosine"), default="step")
     parser.add_argument("--warmup-epochs", type=float, default=0.0)
@@ -320,6 +362,8 @@ def main() -> None:
                 "sequence_balanced": args.sequence_balanced,
                 "max_per_component": args.max_per_component,
                 "weight_decay": args.weight_decay,
+                "multiscale_weight": args.multiscale_weight,
+                "calibration_weight": args.calibration_weight,
                 "gradient_clip": args.gradient_clip,
                 "scheduler": args.scheduler,
                 "warmup_epochs": args.warmup_epochs,
@@ -397,6 +441,14 @@ def main() -> None:
             prediction = model(features)
             target_for_loss = torch.log1p(target_counts) if args.loss == "log-mse" else target_counts
             loss = loss_fn(prediction, target_for_loss)
+            if args.multiscale_weight:
+                loss = loss + args.multiscale_weight * multiscale_penalty(
+                    prediction, target_counts, (2, 4)
+                )
+            if args.calibration_weight:
+                loss = loss + args.calibration_weight * calibration_penalty(
+                    prediction, target_counts
+                )
             loss.backward()
             if args.gradient_clip:
                 nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip)
@@ -461,6 +513,8 @@ def main() -> None:
             "ema_decay": args.ema_decay,
             "scheduler": args.scheduler,
             "weight_decay": args.weight_decay,
+            "multiscale_weight": args.multiscale_weight,
+            "calibration_weight": args.calibration_weight,
             "gradient_clip": args.gradient_clip,
             "learning_rate": args.learning_rate,
             "seed": args.seed,
