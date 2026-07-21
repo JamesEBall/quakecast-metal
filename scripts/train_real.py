@@ -91,6 +91,22 @@ def poisson_log_likelihood(target: torch.Tensor, rate: torch.Tensor) -> torch.Te
     return (target * rate.log() - rate - torch.lgamma(target + 1)).sum(dim=(1, 2, 3))
 
 
+def average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
+    """Area under the precision-recall curve for occupied cells.
+
+    Threshold-free, and unlike the likelihood scores it is invariant to the
+    clamp applied to zero-rate cells, so it measures ranking skill alone.
+    """
+    order = np.argsort(-scores, kind="stable")
+    ranked = labels[order]
+    positives = ranked.sum()
+    if positives == 0:
+        return 0.0
+    true_positives = np.cumsum(ranked)
+    precision = true_positives / np.arange(1, len(ranked) + 1)
+    return float((precision * ranked).sum() / positives)
+
+
 def sequence_mean(values: np.ndarray, components: np.ndarray) -> float:
     grouped: dict[str, list[float]] = defaultdict(list)
     for value, component in zip(values, components, strict=True):
@@ -107,7 +123,9 @@ def validate(
 ) -> dict[str, float]:
     model.eval()
     squared_error, model_ll, baseline_ll = [], [], []
+    floored_ll, smoothed_ll = [], []
     observed, forecast_totals, indexes = [], [], []
+    cell_rates, cell_labels, cell_baseline = [], [], []
     spatial_tp = spatial_fp = spatial_fn = 0
     with torch.inference_mode():
         for features, target_counts, batch_indexes in loader:
@@ -127,6 +145,21 @@ def validate(
             )
             model_ll.extend(poisson_log_likelihood(target_counts, prediction_rate).cpu().tolist())
             baseline_ll.extend(poisson_log_likelihood(target_counts, baseline_rate).cpu().tolist())
+            # Two less degenerate references. The frozen baseline predicts a
+            # hard zero wherever the past week was empty, and the 1e-6 clamp
+            # then charges 13.8 nats for every event that lands there.
+            floored_ll.extend(
+                poisson_log_likelihood(target_counts, baseline_rate.clamp_min(1e-3)).cpu().tolist()
+            )
+            uniform = baseline_rate.mean(dim=(1, 2, 3), keepdim=True)
+            smoothed_ll.extend(
+                poisson_log_likelihood(target_counts, 0.5 * baseline_rate + 0.5 * uniform)
+                .cpu()
+                .tolist()
+            )
+            cell_rates.append(prediction_rate.flatten().cpu().numpy())
+            cell_labels.append((target_counts > 0).flatten().cpu().numpy())
+            cell_baseline.append(baseline_rate.flatten().cpu().numpy())
             observed.extend(target_counts.sum(dim=(1, 2, 3)).cpu().tolist())
             forecast_totals.extend(prediction_rate.sum(dim=(1, 2, 3)).cpu().tolist())
             predicted_positive = prediction_rate >= 0.5
@@ -162,6 +195,23 @@ def validate(
         "spatial_false_alarm_ratio_at_0_5": float(spatial_fp / max(spatial_tp + spatial_fp, 1)),
         "sequences": float(len(set(components.tolist()))),
     }
+    # Artefact-free companions to the frozen primary score. The headline number
+    # is dominated by empty cells the persistence baseline scores at the clamp,
+    # so research decisions should read these alongside it.
+    rates_flat = np.concatenate(cell_rates)
+    labels_flat = np.concatenate(cell_labels)
+    baseline_flat = np.concatenate(cell_baseline)
+    metrics["information_gain_per_event_floored_baseline"] = float(
+        (model_values - np.asarray(floored_ll)).sum() / total_observed
+    )
+    metrics["information_gain_per_event_smoothed_baseline"] = float(
+        (model_values - np.asarray(smoothed_ll)).sum() / total_observed
+    )
+    metrics["spatial_average_precision"] = average_precision(rates_flat, labels_flat)
+    metrics["spatial_average_precision_persistence"] = average_precision(
+        baseline_flat, labels_flat
+    )
+    metrics["occupied_cell_fraction"] = float(labels_flat.mean())
     most_productive = int(np.argmax(observations))
     metrics["maximum_observed_trigger_events"] = float(observations[most_productive])
     metrics["forecast_for_maximum_observed_trigger"] = float(forecasts[most_productive])

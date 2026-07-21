@@ -18,6 +18,23 @@ def test_attempt_log_is_unique_and_test_sealed() -> None:
     assert all("information_gain_per_observed_event" in row["metrics"] for row in rows)
 
 
+def test_every_attempt_scored_against_the_committed_frozen_data() -> None:
+    """`--spec` is caller-supplied, so cross-check the record against the repo.
+
+    Without this, an attempt scored on a substituted validation tensor records
+    its own hash and no committed artefact ever contradicts it.
+    """
+    spec = json.loads((REPO_ROOT / "benchmarks" / "benchmark-spec.json").read_text())
+    rows = [
+        json.loads(line)
+        for line in (REPO_ROOT / "benchmarks" / "attempts.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    for row in rows:
+        assert row["validation_tensor_sha256"] == spec["validation_tensor_sha256"], row["attempt_id"]
+        assert row["processed_manifest_sha256"] == spec["processed_manifest_sha256"], row["attempt_id"]
+
+
 def test_generated_artifacts_include_every_attempt() -> None:
     svg = (REPO_ROOT / "benchmarks" / "leaderboard.svg").read_text()
     table = (REPO_ROOT / "benchmarks" / "leaderboard.md").read_text()
