@@ -19,6 +19,12 @@ validation sequences. The 2024-2025 final-test labels remained unopened.
 - sequence-mean log-likelihood gain: +19.09
 - training time on Apple M4 Metal: 76 seconds
 
+The three-epoch Poisson comparison improved information gain to +3.99 nats per
+event and sequence-mean likelihood gain to +23.68. It forecast 3,427 events
+against 3,768 observed overall, while forecasting only 21.1 of the 347 events
+in the most productive validation example. The full KPI history and checkpoint
+are stored in the [tracked W&B run](https://wandb.ai/james-ball-98-none/quakecast-metal/runs/8wjptoxe).
+
 These figures establish that the pipeline learns useful spatial information.
 They do not establish a publishable forecasting result. The most productive
 validation example contained 347 next-day events while the model forecast 8.67,

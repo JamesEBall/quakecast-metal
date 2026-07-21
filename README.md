@@ -54,6 +54,8 @@ W&B tracks information gain per observed event, sequence-weighted likelihood
 gain, total-rate calibration, extreme-event calibration, spatial CSI,
 precision/recall, region-level results, and the final-test governance flag.
 
+[Open the tracked Poisson run in Weights & Biases](https://wandb.ai/james-ball-98-none/quakecast-metal/runs/8wjptoxe).
+
 ## Preliminary validation
 
 | Objective | Information gain/event | Sequence log-likelihood gain |
