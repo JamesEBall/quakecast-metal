@@ -72,6 +72,25 @@ def build_model(metadata: dict) -> nn.Module:
     )
 
 
+class RateEnsemble(nn.Module):
+    """Average member rates, returned in log space.
+
+    Members are combined on the rate scale, not the log-rate scale, so the
+    ensemble forecasts the mean expected count rather than a geometric mean.
+    Downstream scoring exponentiates the output like any single model.
+    """
+
+    def __init__(self, members: list[nn.Module]) -> None:
+        super().__init__()
+        if not members:
+            raise ValueError("An ensemble needs at least one member")
+        self.members = nn.ModuleList(members)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rates = torch.stack([member(x).exp() for member in self.members])
+        return rates.mean(dim=0).clamp_min(1e-12).log()
+
+
 class ExponentialMovingAverage:
     """Shadow copy of the weights, averaged over training steps."""
 
