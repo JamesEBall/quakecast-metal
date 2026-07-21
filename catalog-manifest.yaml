@@ -1,0 +1,102 @@
+metadata:
+  author: James Edward Ball
+  created: 2026-07-21
+  status: proposed
+  rule: raw downloads are immutable and identified by sha256
+
+catalogues:
+  - id: scedc_scsn
+    region: southern_california
+    tier: 1
+    role: standard_operational
+    authority: Caltech and USGS Southern California Seismic Network
+    access: https://scedc.caltech.edu/data/eq-catalogs.html
+    paper_period: 1980-01-01/2023-09-30
+    paper_m2_depth40_count: 137975
+    paper_m4_depth40_count: 1300
+    notes: use annual version-controlled files for bulk retrieval
+
+  - id: scedc_qtm_12dev
+    region: southern_california
+    tier: 1
+    role: high_resolution_pretraining
+    authority: Southern California Earthquake Data Center
+    access: https://scedc.caltech.edu/eq-catalogs/qtm.html
+    period: 2008-01-01/2017-12-31
+    event_count_approx: 900000
+    notes: prefer the higher-confidence 12 MAD product; superset overlaps SCSN
+
+  - id: ncedc_ncss
+    region: northern_california
+    tier: 1
+    role: standard_operational
+    authority: UC Berkeley and USGS Northern California Seismic System
+    access: https://www.ncedc.org/ncedc/catalog-search.html
+    paper_period: 1980-01-01/2023-09-30
+    paper_m2_depth40_count: 143327
+    paper_m4_depth40_count: 2338
+    notes: freeze catalogue choice and geoid-referenced depth convention
+
+  - id: geonet
+    region: new_zealand
+    tier: 1
+    role: standard_operational_and_external_validation
+    authority: GNS Science GeoNet
+    access: https://www.geonet.org.nz/data/types/eq_catalogue
+    fdsn: https://service.geonet.org.nz/fdsnws/event/1/query
+    paper_period: 1980-01-01/2023-09-30
+    paper_m2_depth40_count: 272183
+    paper_m4_depth40_count: 8892
+    notes: retain publicid, modificationtime, evaluationstatus and magnitudetype
+
+  - id: ingv_iside
+    region: italy
+    tier: 1
+    role: standard_operational
+    authority: Istituto Nazionale di Geofisica e Vulcanologia
+    access: https://data.ingv.it/metadata/web_service_eng
+    paper_period: 1985-01-02/2023-09-30
+    paper_m2_depth40_count: 104100
+    paper_m4_depth40_count: 866
+    notes: retrieve through the registered ISIDe FDSN event service
+
+  - id: central_italy_ml
+    region: central_italy
+    tier: 1
+    role: high_resolution_pretraining
+    authority: Tan, Waldhauser and Ellsworth
+    access: https://doi.org/10.5281/zenodo.4736089
+    period: 2016-08-15/2017-08-15
+    event_count_approx: 900000
+    notes: one sequence; never distribute its events across partitions
+
+  - id: noaig
+    region: greece
+    tier: 2
+    role: external_validation
+    authority: National Observatory of Athens Institute of Geodynamics
+    access: https://www.gein.noa.gr/services/cat.html
+    fdsn: https://eida2.gein.noa.gr/
+    paper_period: 1980-01-01/2023-09-30
+    paper_m2_depth40_count: 202056
+    paper_m4_depth40_count: 5574
+    notes: verify revision status and magnitude consistency before use
+
+  - id: nied_juice
+    region: japan
+    tier: 2
+    role: historical_external_validation
+    authority: NIED Hi-net
+    access: https://www.hinet.bosai.go.jp/topics/JUICE/
+    period: 2001-01-01/2012-12-31
+    paper_m2_depth40_count: 108030
+    paper_m4_depth40_count: 1921
+    notes: relative locations; preserve JUICE grid IDs to diagnose edge artefacts
+
+  - id: usgs_comcat
+    region: global
+    tier: utility
+    role: cross_identification_and_ingestion_fallback
+    authority: United States Geological Survey
+    access: https://earthquake.usgs.gov/fdsnws/event/1/
+    notes: regional authoritative catalogues remain the evaluation source of truth

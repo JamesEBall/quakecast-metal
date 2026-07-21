@@ -1,0 +1,12 @@
+.DS_Store
+.venv/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+work/
+wandb/
+data/
+processed/
+*.pt
+*.ckpt
+*.npz
