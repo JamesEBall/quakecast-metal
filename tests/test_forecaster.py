@@ -25,6 +25,13 @@ class ForecasterTest(unittest.TestCase):
         # One extra scalar over the paper size: the learnable quiet-cell floor.
         self.assertEqual(sum(p.numel() for p in model.parameters()), 4_032_206)
 
+    def test_plain_head_keeps_a_spatially_varying_output_layer(self) -> None:
+        # Zeroing the head without an offset starts the forecast flat and it
+        # stays diffuse, so only the offset variant may zero it.
+        model = RateForecaster(output_bias=-1.1)
+        self.assertTrue(bool(model.core.output.weight.abs().sum() > 0))
+        self.assertAlmostEqual(float(model.core.output.bias.mean()), -1.1, places=5)
+
     def test_offset_head_starts_at_the_persistence_rate(self) -> None:
         model = RateForecaster(baseline_offset=True, output_bias=0.0, floor=1e-6).eval()
         weekly_counts = torch.randint(0, 30, (2, 1, 20, 20)).float()

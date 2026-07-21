@@ -40,6 +40,12 @@ class RateForecaster(nn.Module):
         self.floor_raw = nn.Parameter(torch.tensor(math.log(math.expm1(floor))))
         if output_bias is not None:
             nn.init.constant_(self.core.output.bias, output_bias)
+        if baseline_offset:
+            # Start exactly at the persistence forecast, which already carries
+            # the spatial structure. Zeroing the head without an offset instead
+            # starts the model spatially flat, and it stays diffuse: a control
+            # run held spatial CSI at 0.0 for two epochs because no cell ever
+            # reached the 0.5 threshold.
             nn.init.zeros_(self.core.output.weight)
 
     def persistence_rate(self, x: torch.Tensor) -> torch.Tensor:

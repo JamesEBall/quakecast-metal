@@ -218,6 +218,12 @@ def main() -> None:
     )
     parser.add_argument("--width", type=int, default=64, help="Base channel count")
     parser.add_argument(
+        "--bias-init",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Start the output layer at the mean training rate",
+    )
+    parser.add_argument(
         "--select-best",
         action="store_true",
         help="Ship the epoch with the best validation information gain, not the last",
@@ -299,7 +305,11 @@ def main() -> None:
     model = RateForecaster(
         width=args.width,
         baseline_offset=args.baseline_offset,
-        output_bias=starting_bias(train_data, args.baseline_offset, args.loss),
+        output_bias=(
+            starting_bias(train_data, args.baseline_offset, args.loss)
+            if args.bias_init
+            else None
+        ),
     ).to(device)
     optimiser = torch.optim.Adam(
         model.parameters(),
@@ -397,6 +407,7 @@ def main() -> None:
             "max_per_component": args.max_per_component,
             "baseline_offset": args.baseline_offset,
             "width": args.width,
+            "bias_init": args.bias_init,
             "ema_decay": args.ema_decay,
             "scheduler": args.scheduler,
             "weight_decay": args.weight_decay,
