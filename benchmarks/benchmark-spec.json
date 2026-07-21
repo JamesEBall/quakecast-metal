@@ -1,0 +1,18 @@
+{
+  "name": "quakecast-metal-validation-v1",
+  "author": "James Edward Ball",
+  "purpose": "Compare research attempts without opening the final test labels.",
+  "validation_period": "2022-01-01 through 2023-12-31",
+  "validation_sequences": 200,
+  "primary_metric": "information_gain_per_observed_event",
+  "primary_metric_direction": "higher",
+  "baseline": "seven-day mean persistence rate",
+  "guardrail_metrics": [
+    "forecast_observed_ratio",
+    "spatial_csi_at_0_5",
+    "maximum_trigger_forecast_observed_ratio"
+  ],
+  "validation_tensor_sha256": "684128edd70c9eb3bce9e2fac439f41ec5ed5f4deadc4434d58fa88e748ea658",
+  "processed_manifest_sha256": "dc03cdd8f804f4c7c7062c3801b71e80a411de811e8605229bde3c33c366b558",
+  "final_test_policy": "The 2024-2025 test labels stay sealed until the model and evaluation protocol are frozen."
+}

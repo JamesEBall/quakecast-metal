@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="500" viewBox="0 0 1080 500" role="img" aria-labelledby="title desc">
+<title id="title">QuakeCast Metal validation benchmark progress</title>
+<desc id="desc">Information gain per observed earthquake event by research attempt. Higher values are better.</desc>
+<style>
+  :root { color-scheme: light dark; }
+  svg { background: #fbfaf7; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .title { fill: #172033; font-size: 24px; font-weight: 700; }
+  .subtitle, .tick, .axis-label, .attempt, .empty { fill: #596375; }
+  .subtitle { font-size: 14px; } .tick { font-size: 12px; } .axis-label { font-size: 13px; font-weight: 600; }
+  .grid { stroke: #d9dde5; stroke-width: 1; } .axis { stroke: #7c8799; stroke-width: 1.5; }
+  .series { fill: none; stroke: #1769e0; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+  .point { fill: #fbfaf7; stroke: #1769e0; stroke-width: 4; }
+  .value { fill: #0f55bd; font-size: 15px; font-weight: 700; } .attempt { font-size: 12px; }
+  @media (prefers-color-scheme: dark) {
+    svg { background: #10141c; } .title { fill: #eef3fb; } .subtitle, .tick, .axis-label, .attempt, .empty { fill: #aeb8c7; }
+    .grid { stroke: #2c3441; } .axis { stroke: #697588; } .series { stroke: #68a0ff; }
+    .point { fill: #10141c; stroke: #68a0ff; } .value { fill: #8bb8ff; }
+  }
+</style>
+<text class="title" x="84" y="34">QuakeCast Metal benchmark</text>
+<text class="subtitle" x="84" y="56">Fixed 2022-2023 validation set - Poisson information gain/event - higher is better</text>
+<line class="grid" x1="84" y1="395.0" x2="1038" y2="395.0"/><text class="tick" x="70" y="400.0" text-anchor="end">-0.7</text><line class="grid" x1="84" y1="329.6" x2="1038" y2="329.6"/><text class="tick" x="70" y="334.6" text-anchor="end">0.4</text><line class="grid" x1="84" y1="264.2" x2="1038" y2="264.2"/><text class="tick" x="70" y="269.2" text-anchor="end">1.5</text><line class="grid" x1="84" y1="198.8" x2="1038" y2="198.8"/><text class="tick" x="70" y="203.8" text-anchor="end">2.5</text><line class="grid" x1="84" y1="133.4" x2="1038" y2="133.4"/><text class="tick" x="70" y="138.4" text-anchor="end">3.6</text><line class="grid" x1="84" y1="68.0" x2="1038" y2="68.0"/><text class="tick" x="70" y="73.0" text-anchor="end">4.7</text>
+<line class="axis" x1="84" y1="68" x2="84" y2="395"/>
+<line class="axis" x1="84" y1="395" x2="1038" y2="395"/>
+<text class="axis-label" transform="translate(22 231.5) rotate(-90)" text-anchor="middle">Information gain per observed event (nats)</text>
+<text class="axis-label" x="561.0" y="480" text-anchor="middle">Research attempt</text>
+<polyline class="series" points="189.0,168.1 933.0,111.3"/><circle class="point" cx="189.0" cy="168.1" r="7"><title>001-log-mse-sequence-balanced: 3.051</title></circle><text class="value" x="189.0" y="153.1" text-anchor="middle">3.05</text><text class="attempt" x="189.0" y="425" text-anchor="middle">001 · log-MSE</text><circle class="point" cx="933.0" cy="111.3" r="7"><title>002-poisson-sequence-balanced: 3.994</title></circle><text class="value" x="933.0" y="96.3" text-anchor="middle">3.99</text><text class="attempt" x="933.0" y="425" text-anchor="middle">002 · Poisson</text>
+</svg>

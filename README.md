@@ -10,6 +10,15 @@ This is an early research playground, not an operational warning system. The
 current model captures useful spatial structure and still underpredicts extreme
 sequence productivity.
 
+## Benchmark progress
+
+![Validation benchmark progress](benchmarks/leaderboard.svg)
+
+Every serious attempt is recorded against the same frozen 2022-2023 validation
+set. Information gain per observed event is the primary score, with calibration
+and spatial CSI as guardrails. The 2024-2025 final test remains sealed. See the
+[autoresearch loop](AUTORESEARCH.md) and [full leaderboard](benchmarks/leaderboard.md).
+
 ## What is included
 
 - Apple Metal and CPU training
