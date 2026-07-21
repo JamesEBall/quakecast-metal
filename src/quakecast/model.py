@@ -105,19 +105,20 @@ class Up(nn.Module):
 class SmaAtUNet(nn.Module):
     """Three aggregated input maps to one log-rate forecast map."""
 
-    def __init__(self, in_channels: int = 3, out_channels: int = 1):
+    def __init__(self, in_channels: int = 3, out_channels: int = 1, width: int = 64):
         super().__init__()
-        self.inc = DoubleConv(in_channels, 64)
-        self.att1 = CBAM(64)
-        self.down1, self.att2 = Down(64, 128), CBAM(128)
-        self.down2, self.att3 = Down(128, 256), CBAM(256)
-        self.down3, self.att4 = Down(256, 512), CBAM(512)
-        self.down4, self.att5 = Down(512, 512), CBAM(512)
-        self.up1 = Up(1024, 256)
-        self.up2 = Up(512, 128)
-        self.up3 = Up(256, 64)
-        self.up4 = Up(128, 64)
-        self.output = nn.Conv2d(64, out_channels, 1)
+        one, two, four, eight = width, width * 2, width * 4, width * 8
+        self.inc = DoubleConv(in_channels, one)
+        self.att1 = CBAM(one)
+        self.down1, self.att2 = Down(one, two), CBAM(two)
+        self.down2, self.att3 = Down(two, four), CBAM(four)
+        self.down3, self.att4 = Down(four, eight), CBAM(eight)
+        self.down4, self.att5 = Down(eight, eight), CBAM(eight)
+        self.up1 = Up(eight * 2, four)
+        self.up2 = Up(eight, two)
+        self.up3 = Up(four, one)
+        self.up4 = Up(two, one)
+        self.output = nn.Conv2d(one, out_channels, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x1 = self.att1(self.inc(x))

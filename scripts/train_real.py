@@ -18,7 +18,12 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from quakecast.demo import select_device
-from quakecast.model import SmaAtUNet
+from quakecast.forecaster import (
+    WRAPPER_NAME,
+    ExponentialMovingAverage,
+    RateForecaster,
+    cosine_schedule,
+)
 from quakecast.catalogues import sha256
 
 
@@ -50,6 +55,35 @@ def sequence_sampler(dataset: TensorDataset, seed: int) -> WeightedRandomSampler
     weights = torch.tensor([1.0 / sizes[value] for value in components], dtype=torch.double)
     generator = torch.Generator().manual_seed(seed)
     return WeightedRandomSampler(weights, len(dataset), replacement=True, generator=generator)
+
+
+class CappedComponentSampler(torch.utils.data.Sampler[int]):
+    """Draw at most `cap` distinct examples per connected sequence each epoch.
+
+    Sequence-balanced weighting equalises sequences but resamples the same
+    aftershock hundreds of times inside a productive one. Capping keeps the
+    balancing while every drawn example within an epoch stays distinct.
+    """
+
+    def __init__(self, dataset: TensorDataset, cap: int, seed: int) -> None:
+        components = dataset.component_ids[dataset.indexes]
+        self.groups: list[np.ndarray] = []
+        for value in sorted(set(components.tolist())):
+            self.groups.append(np.flatnonzero(components == value))
+        self.cap = cap
+        self.generator = np.random.default_rng(seed)
+        self.length = sum(min(len(group), cap) for group in self.groups)
+
+    def __len__(self) -> int:
+        return self.length
+
+    def __iter__(self):
+        drawn = []
+        for group in self.groups:
+            take = min(len(group), self.cap)
+            drawn.extend(self.generator.choice(group, size=take, replace=False).tolist())
+        self.generator.shuffle(drawn)
+        return iter(drawn)
 
 
 def poisson_log_likelihood(target: torch.Tensor, rate: torch.Tensor) -> torch.Tensor:
@@ -167,6 +201,35 @@ def main() -> None:
         default=True,
         help="Give every connected sequence equal sampling mass",
     )
+    parser.add_argument(
+        "--max-per-component",
+        type=int,
+        help="Non-replacement sequence balancing: cap examples drawn per sequence per epoch",
+    )
+    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--gradient-clip", type=float, help="Clip global gradient norm")
+    parser.add_argument("--scheduler", choices=("step", "cosine"), default="step")
+    parser.add_argument("--warmup-epochs", type=float, default=0.0)
+    parser.add_argument("--ema-decay", type=float, help="Track and ship EMA weights")
+    parser.add_argument(
+        "--baseline-offset",
+        action="store_true",
+        help="Predict a log-multiplier on the seven-day persistence rate",
+    )
+    parser.add_argument("--width", type=int, default=64, help="Base channel count")
+    parser.add_argument(
+        "--select-best",
+        action="store_true",
+        help="Ship the epoch with the best validation information gain, not the last",
+    )
+    parser.add_argument(
+        "--calibration-band",
+        type=float,
+        nargs=2,
+        default=(0.5, 2.0),
+        metavar=("LOW", "HIGH"),
+        help="Epochs outside this forecast/observed band are ineligible for --select-best",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -199,6 +262,15 @@ def main() -> None:
                 "learning_rate": args.learning_rate,
                 "seed": args.seed,
                 "sequence_balanced": args.sequence_balanced,
+                "max_per_component": args.max_per_component,
+                "weight_decay": args.weight_decay,
+                "gradient_clip": args.gradient_clip,
+                "scheduler": args.scheduler,
+                "warmup_epochs": args.warmup_epochs,
+                "ema_decay": args.ema_decay,
+                "baseline_offset": args.baseline_offset,
+                "width": args.width,
+                "select_best": args.select_best,
                 "train_examples": len(train_data),
                 "train_components": len(set(train_data.component_ids[train_data.indexes].tolist())),
                 "validation_examples": len(validation_data),
@@ -210,7 +282,11 @@ def main() -> None:
         wandb.define_metric("epoch")
         wandb.define_metric("train/*", step_metric="epoch")
         wandb.define_metric("validation/*", step_metric="epoch")
-    sampler = sequence_sampler(train_data, args.seed) if args.sequence_balanced else None
+    sampler: torch.utils.data.Sampler[int] | None = None
+    if args.max_per_component:
+        sampler = CappedComponentSampler(train_data, args.max_per_component, args.seed)
+    elif args.sequence_balanced:
+        sampler = sequence_sampler(train_data, args.seed)
     train_loader = DataLoader(
         train_data,
         batch_size=args.batch_size,
@@ -220,21 +296,41 @@ def main() -> None:
     validation_loader = DataLoader(validation_data, batch_size=args.batch_size)
 
     device = select_device()
-    model = SmaAtUNet().to(device)
+    model = RateForecaster(
+        width=args.width,
+        baseline_offset=args.baseline_offset,
+        output_bias=starting_bias(train_data, args.baseline_offset, args.loss),
+    ).to(device)
     optimiser = torch.optim.Adam(
-        model.parameters(), lr=args.learning_rate, betas=(0.9, 0.99)
+        model.parameters(),
+        lr=args.learning_rate,
+        betas=(0.9, 0.99),
+        weight_decay=args.weight_decay,
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+    steps_per_epoch = max(len(train_loader), 1)
+    total_steps = steps_per_epoch * args.epochs
+    warmup_steps = int(args.warmup_epochs * steps_per_epoch)
+    scheduler = (
+        torch.optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.1)
+        if args.scheduler == "step"
+        else torch.optim.lr_scheduler.LambdaLR(
+            optimiser, lambda step: cosine_schedule(step, total_steps, warmup_steps)
+        )
+    )
+    averager = ExponentialMovingAverage(model, args.ema_decay) if args.ema_decay else None
     loss_fn: nn.Module = (
         nn.MSELoss()
         if args.loss == "log-mse"
         else nn.PoissonNLLLoss(log_input=True, full=False)
     )
     history = []
+    best = {"score": -float("inf"), "epoch": 0, "state": None}
+    low_band, high_band = args.calibration_band
     started = time.perf_counter()
     for epoch in range(1, args.epochs + 1):
         model.train()
         loss_sum = 0.0
+        seen = 0
         for features, target_counts, _ in train_loader:
             features, target_counts = features.to(device), target_counts.to(device)
             optimiser.zero_grad(set_to_none=True)
@@ -242,43 +338,77 @@ def main() -> None:
             target_for_loss = torch.log1p(target_counts) if args.loss == "log-mse" else target_counts
             loss = loss_fn(prediction, target_for_loss)
             loss.backward()
+            if args.gradient_clip:
+                nn.utils.clip_grad_norm_(model.parameters(), args.gradient_clip)
             optimiser.step()
+            if args.scheduler == "cosine":
+                scheduler.step()
+            if averager:
+                averager.update(model)
             loss_sum += loss.item() * len(features)
-        scheduler.step()
-        metrics = validate(model, validation_loader, validation_data, device, args.loss)
+            seen += len(features)
+        if args.scheduler == "step":
+            scheduler.step()
+        shipped = averager.shadow if averager else model
+        metrics = validate(shipped, validation_loader, validation_data, device, args.loss)
         objective_name = "log_mse" if args.loss == "log-mse" else "poisson_nll"
         row = {
             "epoch": epoch,
-            f"train_{objective_name}": loss_sum / len(train_data),
+            f"train_{objective_name}": loss_sum / max(seen, 1),
             "learning_rate": scheduler.get_last_lr()[0],
             **metrics,
         }
         history.append(row)
+        score = metrics["information_gain_per_observed_event"]
+        calibrated = low_band <= metrics["forecast_observed_ratio"] <= high_band
+        if calibrated and score > best["score"]:
+            best = {
+                "score": score,
+                "epoch": epoch,
+                "state": {key: value.detach().cpu().clone() for key, value in shipped.state_dict().items()},
+            }
         print(json.dumps(row), flush=True)
         if wandb_run:
             wandb_run.log(
                 {
                     "epoch": epoch,
-                    f"train/{objective_name}": loss_sum / len(train_data),
+                    f"train/{objective_name}": loss_sum / max(seen, 1),
                     "train/learning_rate": scheduler.get_last_lr()[0],
                     **{f"validation/{key}": value for key, value in metrics.items()},
                 }
             )
+
+    shipped = averager.shadow if averager else model
+    selected_epoch = args.epochs
+    if args.select_best and best["state"] is not None:
+        shipped.load_state_dict(best["state"])
+        selected_epoch = int(best["epoch"])
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         "metadata": {
             "author": "James Edward Ball",
             "architecture": "SmaAtUNet",
+            "model_wrapper": WRAPPER_NAME,
             "device": str(device),
             "loss": args.loss,
             "paper_loss": args.loss == "log-mse",
             "sequence_balanced": args.sequence_balanced,
+            "max_per_component": args.max_per_component,
+            "baseline_offset": args.baseline_offset,
+            "width": args.width,
+            "ema_decay": args.ema_decay,
+            "scheduler": args.scheduler,
+            "weight_decay": args.weight_decay,
+            "gradient_clip": args.gradient_clip,
+            "learning_rate": args.learning_rate,
+            "seed": args.seed,
+            "selected_epoch": selected_epoch,
             "train_examples": len(train_data),
             "validation_examples": len(validation_data),
             "final_test_opened": False,
         },
-        "model_state_dict": model.state_dict(),
+        "model_state_dict": shipped.state_dict(),
         "optimizer_state_dict": optimiser.state_dict(),
         "history": history,
     }
@@ -289,6 +419,7 @@ def main() -> None:
         "epochs": args.epochs,
         "elapsed_seconds": round(time.perf_counter() - started, 2),
         "checkpoint": str(args.output),
+        "selected_validation": history[selected_epoch - 1],
         "final_validation": history[-1],
     }
     args.output.with_suffix(".json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -314,6 +445,22 @@ def main() -> None:
         wandb_run.log_artifact(artifact)
         wandb_run.finish()
     print(json.dumps(summary, indent=2))
+
+
+def starting_bias(dataset: TensorDataset, baseline_offset: bool, loss_name: str) -> float | None:
+    """Initialise the output layer at the mean rate, or at persistence.
+
+    Without this the first epoch's exp() forecast overshoots by four orders of
+    magnitude and the run spends its early budget recovering.
+    """
+    if loss_name != "poisson":
+        return None
+    targets = dataset.targets[dataset.indexes].astype(np.float64)
+    if baseline_offset:
+        persistence = np.expm1(dataset.inputs[dataset.indexes][:, :1]) / 7.0
+        scale = targets.sum() / max(persistence.sum() + 0.02 * targets[:, 0].size, 1e-6)
+        return float(np.log(max(scale, 1e-6)))
+    return float(np.log(max(targets.mean(), 1e-6)))
 
 
 if __name__ == "__main__":

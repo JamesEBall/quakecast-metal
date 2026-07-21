@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from quakecast.demo import select_device
-from quakecast.model import SmaAtUNet
+from quakecast.forecaster import build_model
 from train_real import TensorDataset, validate
 from render_benchmark import read_attempts, render_markdown, render_svg
 
@@ -69,7 +69,7 @@ def main() -> None:
         raise SystemExit(f"Unsupported checkpoint loss: {loss_name}")
 
     device = select_device()
-    model = SmaAtUNet().to(device)
+    model = build_model(metadata).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     validation_data = TensorDataset(validation_path)
     loader = DataLoader(validation_data, batch_size=args.batch_size)
