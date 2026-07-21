@@ -324,7 +324,7 @@ def main() -> None:
         "--calibration-band",
         type=float,
         nargs=2,
-        default=(0.5, 2.0),
+        default=(0.8, 1.2),
         metavar=("LOW", "HIGH"),
         help="Epochs outside this forecast/observed band are ineligible for --select-best",
     )
